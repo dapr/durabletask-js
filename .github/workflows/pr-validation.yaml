@@ -4,16 +4,18 @@ on:
   push:
     branches:
       - main
+    tags:
+      - v*
   pull_request:
     branches:
       - main
 
+env:
+  NODE_VER: 16.14.0
+
 jobs:
   build:
     runs-on: ubuntu-latest
-
-    env:
-      NODE_VER: 16.14.0
 
     services:
       # docker run --name durabletask-sidecar -p 4001:4001 --env 'DURABLETASK_SIDECAR_LOGLEVEL=Debug' --rm cgillum/durabletask-sidecar:latest start --backend Emulator
@@ -43,3 +45,30 @@ jobs:
 
       - name: ✅ Run e2e tests
         run: ./scripts/test-e2e.sh
+
+  publish:
+    needs: build
+    if: startswith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    # TODO environment?
+    # environment: production
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v2
+
+      - name: ⚙️ NodeJS - Install
+        uses: actions/setup-node@v2
+        with:
+          node-version: ${{ env.NODE_VER }}
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build package
+        run: npm run build-ci
+
+      - name: Publish to npm (@dapr/durabletask-js)
+        run: npm publish build/ --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
