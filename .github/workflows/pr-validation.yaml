@@ -47,7 +47,6 @@ jobs:
         run: ./scripts/test-e2e.sh
 
   publish:
-    needs: build
     if: startswith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     # TODO environment?
@@ -62,8 +61,11 @@ jobs:
           node-version: ${{ env.NODE_VER }}
           registry-url: "https://registry.npmjs.org"
 
-      - name: Install dependencies
+      - name: ⚙️ Install dependencies
         run: npm install
+
+      - name: ✅ Run unit tests
+        run: npm test test/unit
 
       - name: Build package
         run: npm run build-ci
