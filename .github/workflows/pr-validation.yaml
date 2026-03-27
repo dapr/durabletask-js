@@ -10,8 +10,12 @@ on:
     branches:
       - main
 
+permissions:
+  id-token: write # Required for OIDC
+  contents: read
+
 env:
-  NODE_VER: 16.14.0
+  NODE_VER: 24.14.1
 
 jobs:
   build:
@@ -56,14 +60,14 @@ jobs:
     # environment: production
     steps:
       - name: 📥 Checkout code
-        uses: actions/checkout@v2
+        uses: actions/checkout@v6
 
       - name: Initialize and update submodules
         run: |
           git submodule update --init --recursive
 
       - name: ⚙️ NodeJS - Install
-        uses: actions/setup-node@v2
+        uses: actions/setup-node@v6
         with:
           node-version: ${{ env.NODE_VER }}
           registry-url: "https://registry.npmjs.org"
@@ -79,5 +83,3 @@ jobs:
 
       - name: Publish to npm (@dapr/durabletask-js)
         run: npm publish build/ --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
