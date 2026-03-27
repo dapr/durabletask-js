@@ -26,8 +26,10 @@ export class TaskHubGrpcWorker {
   private _isRunning: boolean;
   private _stopWorker: boolean;
   private _stub: stubs.TaskHubSidecarServiceClient | null;
+  private _keepaliveIntervalMs: number;
+  private _keepaliveIntervalHandle: ReturnType<typeof setInterval> | null;
 
-  constructor(hostAddress?: string, options?: grpc.ChannelOptions, useTLS?: boolean) {
+  constructor(hostAddress?: string, options?: grpc.ChannelOptions, useTLS?: boolean, keepaliveIntervalMs?: number) {
     this._registry = new Registry();
     this._hostAddress = hostAddress;
     this._tls = useTLS;
@@ -36,6 +38,11 @@ export class TaskHubGrpcWorker {
     this._isRunning = false;
     this._stopWorker = false;
     this._stub = null;
+    this._keepaliveIntervalMs =
+      keepaliveIntervalMs !== undefined && Number.isFinite(keepaliveIntervalMs) && keepaliveIntervalMs > 0
+        ? keepaliveIntervalMs
+        : 30000;
+    this._keepaliveIntervalHandle = null;
   }
 
   /**
@@ -126,6 +133,9 @@ export class TaskHubGrpcWorker {
 
       console.log(`Successfully connected to ${this._hostAddress}. Waiting for work items...`);
 
+      // Start application-level keepalive
+      this._startKeepaliveInterval();
+
       // Wait for a work item to be received
       stream.on("data", (workItem: pb.WorkItem) => {
         if (workItem.hasOrchestratorrequest()) {
@@ -145,6 +155,7 @@ export class TaskHubGrpcWorker {
 
       // Wait for the stream to end or error
       stream.on("end", async () => {
+        this._clearKeepaliveInterval();
         stream.cancel();
         stream.destroy();
         if (this._stopWorker) {
@@ -159,9 +170,11 @@ export class TaskHubGrpcWorker {
       });
 
       stream.on("error", (err: Error) => {
+        this._clearKeepaliveInterval();
         console.log("Stream error", err);
       });
     } catch (err) {
+      this._clearKeepaliveInterval();
       if (this._stopWorker) {
         // ignoring the error because the worker has been stopped
         return;
@@ -188,6 +201,8 @@ export class TaskHubGrpcWorker {
 
     this._stopWorker = true;
 
+    this._clearKeepaliveInterval();
+
     this._responseStream?.cancel();
     this._responseStream?.destroy();
 
@@ -198,6 +213,40 @@ export class TaskHubGrpcWorker {
     // Wait a bit to let the async operations finish
     // https://github.com/grpc/grpc-node/issues/1563#issuecomment-829483711
     await sleep(1000);
+  }
+
+  /**
+   * Starts a periodic keepalive Hello RPC to keep the gRPC connection alive.
+   * This is an application-level keepalive to prevent AWS ALBs
+   * from killing idle HTTP/2 connections.
+   */
+  private _startKeepaliveInterval(): void {
+    this._clearKeepaliveInterval();
+
+    if (!this._stub) {
+      return;
+    }
+
+    this._keepaliveIntervalHandle = setInterval(() => {
+      if (!this._stub) {
+        this._clearKeepaliveInterval();
+        return;
+      }
+
+      this._stub.hello(new Empty(), () => {
+        // Errors are ignored - reconnection logic handles real failures
+      });
+    }, this._keepaliveIntervalMs);
+  }
+
+  /**
+   * Clears the keepalive interval if one is active.
+   */
+  private _clearKeepaliveInterval(): void {
+    if (this._keepaliveIntervalHandle) {
+      clearInterval(this._keepaliveIntervalHandle);
+      this._keepaliveIntervalHandle = null;
+    }
   }
 
   /**
