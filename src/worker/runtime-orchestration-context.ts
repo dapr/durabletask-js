@@ -99,8 +99,20 @@ export class RuntimeOrchestrationContext extends OrchestrationContext {
       if (this._previousTask.isFailed) {
         // Raise the failure as an exception to the generator. The orchestrator can then either
         // handle the exception or allow it to fail the orchestration.
-        await this._generator.throw(this._previousTask._exception);
-      } else if (this._previousTask.isComplete) {
+        const { done, value } = await this._generator.throw(this._previousTask._exception);
+        if (done) {
+          throw new StopIterationError(value);
+        }
+        if (!(value instanceof Task)) {
+          throw new Error("The orchestrator generator yielded a non-Task object");
+        }
+        this._previousTask = value;
+        // If the new task is already complete, fall through to the isComplete handler
+        if (!this._previousTask.isComplete) {
+          return;
+        }
+      }
+      if (this._previousTask.isComplete) {
         while (true) {
           // Resume the generator. This will either return a Task or raise StopIteration if it's done.
           // @todo: Should we check for possible infinite loops here?
