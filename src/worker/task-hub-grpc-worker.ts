@@ -287,6 +287,7 @@ export class TaskHubGrpcWorker {
       const failureDetails = pbh.newFailureDetails(e);
 
       res = new pb.ActivityResponse();
+      res.setInstanceid(instanceId);
       res.setTaskid(req.getTaskid());
       res.setFailuredetails(failureDetails);
     }
